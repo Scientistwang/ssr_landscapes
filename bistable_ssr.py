@@ -228,6 +228,15 @@ class ssrParams:
                     jac[i, j] = val
         return jac
 
+    def get_fp_stability(s, fps):
+        """ Evaluate and return whether fixed points fps are stable """
+        is_stables = []
+        for fp in fps:
+            jac = s.get_jacobian(fp)
+            evals = np.linalg.eig(jac)[0]
+            is_stables.append(all(evals < 0))
+        return is_stables
+
     def convert_op_to_sp(s, points):
         """ Take a list of 2D points (corresponding to originalParams) and
         output a list of the corresponding 2D points in the SSR basis ([x, y]).
@@ -256,6 +265,41 @@ class ssrParams:
         M = np.array([[M_aa, M_ab], [M_ba, M_bb]])
         mu = np.array([-M_aa, -M_bb])
         return mu, M
+
+    def get_mixed_fp(s):
+        """ Get coexistent steady state of 2D gLV model """
+        xa = (s.M[1][1]*s.mu[0] - s.M[0][1]*s.mu[1])/(s.M[0][1]*s.M[1][0] - s.M[0][0]*s.M[1][1])
+        xb = (-s.M[1][0]*s.mu[0] + s.M[0][0]*s.mu[1])/(s.M[0][1]*s.M[1][0] - s.M[0][0]*s.M[1][1])
+        return np.array([xa, xb])
+
+    def plot_nullclines(s, ax, savefig=True):
+        """ Plots nullclines of the bistable switch with steady states labeled
+        (stable = black, unstable = red) """
+        xs = np.linspace(0, 1, 1001)
+        x_nullcline = np.array([-(s.mu[0] + x*s.M[0][0])/s.M[0][1] for x in xs])
+        y_nullcline = np.array([-(s.mu[1] + x*s.M[1][0])/s.M[1][1] for x in xs])
+
+        fps = [s.ssa, s.get_mixed_fp(), s.ssb]
+        is_stables = s.get_fp_stability(fps)
+
+        for fp,is_stable in zip(fps, is_stables):
+            print(fp)
+            color = 'k' if is_stable else 'r'
+            ax.plot(fp[0], fp[1], c=color, marker='.', ms=25, zorder=4)
+
+        ax.plot(xs, x_nullcline, c='grey', label='$\dot{x} = 0$')
+        ax.plot(xs, y_nullcline, c='grey', label='$\dot{y} = 0$')
+        ax.legend(); ax.set_xlabel('$u$'); ax.set_ylabel('$v$')
+        ax.set_title('$\\alpha =${:.3}, $\\beta = ${:.3}, and $\gamma = ${:.3} (gLV basis)'
+                     .format(s.alpha, s.beta, s.gamma), fontsize=18)
+        #ax.axis([0, max(y_nullcline[:,0]), 0, max(x_nullcline[:,1])])
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
+
+        filename = 'figs/sp_nullclines_{}.pdf'.format(s.ext)
+        if savefig:
+            plt.savefig(filename, bbox_inches='tight')
+            print('... saved to {}'.format(filename))
 
     def plot_example_traj(s, ax, savefig=True):
         """ Plot an identical sample trajectory as the one in the
@@ -297,13 +341,12 @@ def compare_trajectories(op, sp):
     for ic in [[.5, .5], [1.4, 3], [1, 4], [4, 1], [2, 3], [.35, 1.2]]:
         op_ic = np.array(ic)
         sp_ic = sp.convert_op_to_sp([op_ic])[0]
-        print('originalParams IC is {}'.format(op_ic))
-        print('ssrParams IC is {}'.format(sp_ic))
+        #print('originalParams IC is {}'.format(op_ic))
+        #print('ssrParams IC is {}'.format(sp_ic))
 
         t = np.linspace(0, 100, 501)
         orig_z = integrate.odeint(op.get_integrand, op_ic, t)
         ssr_z = integrate.odeint(sp.get_integrand, sp_ic, t)
-
         orig_z_ssr_basis = sp.convert_op_to_sp(orig_z)
         ssr_z_orig_basis = op.convert_sp_to_op(ssr_z)
 
@@ -323,8 +366,66 @@ def compare_trajectories(op, sp):
     plt.savefig(filename, bbox_inches='tight')
     print('... saved to {}'.format(filename))
 
+    fig, ax = plt.subplots(figsize=(6,6))
+    sp.plot_nullclines(ax, savefig=False)
 
+    for ic in [[.5, .5], [1.4, 3], [1, 4], [4, 1], [2, 3], [.35, 1.2]]:
+        op_ic = np.array(ic)
+        sp_ic = sp.convert_op_to_sp([op_ic])[0]
+        #print('originalParams IC is {}'.format(op_ic))
+        #print('ssrParams IC is {}'.format(sp_ic))
 
+        t = np.linspace(0, 100, 501)
+        orig_z = integrate.odeint(op.get_integrand, op_ic, t)
+        ssr_z = integrate.odeint(sp.get_integrand, sp_ic, t)
+        orig_z_ssr_basis = sp.convert_op_to_sp(orig_z)
+        ssr_z_orig_basis = op.convert_sp_to_op(ssr_z)
+
+        #print(orig_z)
+        #print(ssr_z_orig_basis)
+        #print(ssr_z)
+        #print(orig_z_ssr_basis)
+
+        ax.plot(sp_ic[0], sp_ic[1], 'k.', ms=17)
+        ax1, = ax.plot(ssr_z[:,0], ssr_z[:,1], color='green', ls='--', zorder=2, label='original form')
+        ax2, = ax.plot(orig_z_ssr_basis[:,0], orig_z_ssr_basis[:,1],
+                       color='purple', ls='-.', zorder=2, label='SSR form')
+        ax.legend([ax1, ax2], ['original form', 'SSR form'])
+        ax.axis([0, None, 0, None])
+
+    filename = 'figs/ssr_basis_traj_{}.pdf'.format(op.ext)
+    plt.savefig(filename, bbox_inches='tight')
+    print('... saved to {}'.format(filename))
+
+def compare_steady_states(op, sp):
+    fig, ax = plt.subplots(figsize=(6,6))
+    op.plot_nullclines(ax, savefig=False)
+
+    phase_orig = {}
+    phase_ssr = {}
+    max_x = max(op.ssa[0], op.ssb[0])
+    max_y = max(op.ssa[1], op.ssb[1])
+    xs = np.linspace(0, max_x*1.1, 11)
+    ys = np.linspace(0, max_y*1.1, 11)
+    for x in xs:
+        for y in ys:
+            op_ic = np.array([x, y])
+            sp_ic = sp.convert_op_to_sp([op_ic])[0]
+
+            t = np.linspace(0, 200, 501)
+            orig_z = integrate.odeint(op.get_integrand, op_ic, t)
+            ssr_z = integrate.odeint(sp.get_integrand, sp_ic, t)
+            ssr_z_orig_basis = op.convert_sp_to_op(ssr_z)
+            orig_z_ssr_basis = sp.convert_op_to_sp(orig_z)
+
+            eps = .001
+            if np.linalg.norm(orig_z[-1] - op.ssa) < eps: color = 'r'
+            elif np.linalg.norm(orig_z[-1] - op.ssb) < eps: color = 'g'
+            else: print('{}, {}: neither SS'.format(x, y)); color = 'orange'
+
+            phase_orig[(x, y)] = (orig_z[-1], color)
+
+            print(ssr_z[-1])
 def verify_all_fps_are_fps():
     """ Test that fixed points of the originalParams translate to also being
     fixed points of the quasipolynomialParams and gLVParams """
@@ -375,15 +476,15 @@ if __name__ == '__main__':
     op = originalParams()
     sp = ssrParams(op)
 
-    compare_trajectories(op, sp)
+    compare_steady_states(op, sp)
 
-    print('----')
+    #print('----')
 
-    print('originalParams steady states: {}, {}'.format(op.ssa, op.ssb))
-    print('ssrParams steady states: {}, {}'.format(sp.ssa, sp.ssb))
-    print('ssrParams mu and M:')
-    print(sp.mu)
-    print(sp.M)
+    #print('originalParams steady states: {}, {}'.format(op.ssa, op.ssb))
+    #print('ssrParams steady states: {}, {}'.format(sp.ssa, sp.ssb))
+    #print('ssrParams mu and M:')
+    #print(sp.mu)
+    #print(sp.M)
     #fig, ax = plt.subplots(figsize=(6,6))
     #x_null, y_null = op.get_nullclines()
     #true_fps = op.get_intersections(x_null, y_null)

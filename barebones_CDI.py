@@ -1,6 +1,6 @@
 #!/bin/python
 #
-# Version 0.1 
+# Version 0.2 
 # This file contains the barebones functions required to generate figures that
 # do not involve sporulation or mutation for the paper 'In silico analysis of
 # C. difficile infection: remediation techniques and biological adaptations' by
@@ -217,3 +217,17 @@ class Params:
                         + math.factorial(i) / alpha * gamma)
             coeffs[i] = i_coeff
         return coeffs
+
+def project_to_2D(traj, ssa, ssb):
+    """Projects a high-dimensional trajectory traj into a 2D system, defined by
+    the origin and steady states ssa and ssb, and returns a 2-dimensional
+    trajectory"""
+    new_traj = []
+    for elem in traj:
+        uu = np.dot(ssa, ssa); vv = np.dot(ssb, ssb)
+        xu = np.dot(elem, ssa); xv = np.dot(elem, ssb)
+        uv = np.dot(ssa, ssb)
+        new_traj.append([(xu*vv - xv*uv)/(uu*vv - uv**2),
+                         (uu*xv - xu*uv)/(uu*vv - uv**2)])
+    new_traj = np.array(new_traj)
+    return new_traj
