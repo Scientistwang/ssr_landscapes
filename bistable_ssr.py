@@ -6,11 +6,15 @@
 # 2-dimensional generalized Lotka-Volterra system.
 
 
+import time
+t0 = time.time()
 import numpy as np
 from scipy import optimize
 from scipy import integrate
 import matplotlib.pyplot as plt
 np.set_printoptions(suppress=True, precision=4)
+import pickle
+import matplotlib as mpl
 
 class originalParams:
     """ This class refers to the original 2-dimensional form of the bistable
@@ -64,7 +68,6 @@ class originalParams:
         new_points = np.array(new_points)
         return new_points
 
-
     def get_nullclines(s):
         """ Returns nullclines of bistable switch dynamical system """
         x_range = np.linspace(0, s.alpha*1.1, 100000)
@@ -105,13 +108,17 @@ class originalParams:
         fps = s.get_intersections(x_nullcline, y_nullcline)
         is_stables = s.get_fp_stability(fps)
 
-        for fp,is_stable in zip(fps, is_stables):
-            color = 'k' if is_stable else 'r'
-            ax.plot(fp[0], fp[1], c=color, marker='.', ms=25, zorder=4)
+        for i,fp in enumerate(fps):
+            if i == 0: color='green'
+            if i == 1: color='grey'
+            if i == 2: color='purple'
+            ax.plot(fp[0], fp[1], c=color, marker='.', markeredgecolor='black',
+                    markeredgewidth=2, ms=25, zorder=4)
 
-        ax.plot(x_nullcline[:,0], x_nullcline[:,1], c='grey', label='$\dot{x} = 0$')
-        ax.plot(y_nullcline[:,0], y_nullcline[:,1], c='grey', label='$\dot{y} = 0$')
-        ax.legend(); ax.set_xlabel('gene $x$ concentration'); ax.set_ylabel('gene $y$ concentration')
+        ax.plot(x_nullcline[:,0], x_nullcline[:,1], c='dimgrey', label='$\dot{x} = 0$')
+        ax.plot(y_nullcline[:,0], y_nullcline[:,1], c='dimgrey', label='$\dot{y} = 0$')
+        #ax.legend(loc='upper right', framealpha=1)
+        ax.set_xlabel('gene $x$ concentration'); ax.set_ylabel('gene $y$ concentration')
         ax.set_title('Nullclines with $\\alpha =${:.3}, $\\beta = ${:.3}, and $\gamma = ${:.3}'
                      .format(s.alpha, s.beta, s.gamma), fontsize=18)
         #ax.axis([0, max(y_nullcline[:,0]), 0, max(x_nullcline[:,1])])
@@ -289,7 +296,7 @@ class ssrParams:
 
         ax.plot(xs, x_nullcline, c='grey', label='$\dot{x} = 0$')
         ax.plot(xs, y_nullcline, c='grey', label='$\dot{y} = 0$')
-        ax.legend(); ax.set_xlabel('$u$'); ax.set_ylabel('$v$')
+        ax.legend(loc='upper right'); ax.set_xlabel('$u$'); ax.set_ylabel('$v$')
         ax.set_title('$\\alpha =${:.3}, $\\beta = ${:.3}, and $\gamma = ${:.3} (gLV basis)'
                      .format(s.alpha, s.beta, s.gamma), fontsize=18)
         #ax.axis([0, max(y_nullcline[:,0]), 0, max(x_nullcline[:,1])])
@@ -332,6 +339,26 @@ class ssrParams:
         if savefig:
             plt.savefig(filename, bbox_inches='tight')
             print('... saved to {}'.format(filename))
+
+# from Ian Hincks, https://stackoverflow.com/questions/37765197/darken-or-lighten-a-color-in-matplotlib
+def lighten_color(color, amount=0.5):
+    """
+    Lightens the given color by multiplying (1-luminosity) by the given amount.
+    Input can be matplotlib color string, hex string, or RGB tuple.
+    
+    Examples:
+    >> lighten_color('g', 0.3)
+    >> lighten_color('#F034A3', 0.6)
+    >> lighten_color((.3,.55,.1), 0.5)
+    """
+    import matplotlib.colors as mc
+    import colorsys
+    try:
+        c = mc.cnames[color]
+    except:
+        c = color
+    c = np.array(colorsys.rgb_to_hls(*mc.to_rgb(c)))
+    return colorsys.hls_to_rgb(c[0],1-amount * (1-c[1]),c[2])
 
 def compare_trajectories(op, sp):
     """ Plot a sample trajectory in both originalParams and in ssrParams"""
@@ -397,35 +424,161 @@ def compare_trajectories(op, sp):
     plt.savefig(filename, bbox_inches='tight')
     print('... saved to {}'.format(filename))
 
-def compare_steady_states(op, sp):
-    fig, ax = plt.subplots(figsize=(6,6))
-    op.plot_nullclines(ax, savefig=False)
-
+def compare_steady_states(op, sp, savefig=True):
     phase_orig = {}
     phase_ssr = {}
     max_x = max(op.ssa[0], op.ssb[0])
     max_y = max(op.ssa[1], op.ssb[1])
-    xs = np.linspace(0, max_x*1.1, 11)
-    ys = np.linspace(0, max_y*1.1, 11)
-    for x in xs:
-        for y in ys:
-            op_ic = np.array([x, y])
-            sp_ic = sp.convert_op_to_sp([op_ic])[0]
+    num_points = 51 # 11, 31, 51 saved
+    xs = np.linspace(0, max_x*1.1, num_points)
+    ys = np.linspace(0, max_y*1.1, num_points)
 
-            t = np.linspace(0, 200, 501)
-            orig_z = integrate.odeint(op.get_integrand, op_ic, t)
-            ssr_z = integrate.odeint(sp.get_integrand, sp_ic, t)
-            ssr_z_orig_basis = op.convert_sp_to_op(ssr_z)
-            orig_z_ssr_basis = sp.convert_op_to_sp(orig_z)
+    filename = 'bistable_switch_phases_{}'.format(num_points)
+    read_data = True
+    if not read_data:
+        for x in xs:
+            print(x)
+            for y in ys:
+                op_ic = np.array([x, y])
+                sp_ic = sp.convert_op_to_sp([op_ic])[0]
 
-            eps = .001
-            if np.linalg.norm(orig_z[-1] - op.ssa) < eps: color = 'r'
-            elif np.linalg.norm(orig_z[-1] - op.ssb) < eps: color = 'g'
-            else: print('{}, {}: neither SS'.format(x, y)); color = 'orange'
+                t = np.linspace(0, 200, 501)
+                orig_z = integrate.odeint(op.get_integrand, op_ic, t)
+                ssr_z = integrate.odeint(sp.get_integrand, sp_ic, t)
+                ssr_z_orig_basis = op.convert_sp_to_op(ssr_z)
+                orig_z_ssr_basis = sp.convert_op_to_sp(orig_z)
 
-            phase_orig[(x, y)] = (orig_z[-1], color)
+                eps = .001
+                for z, form in zip([orig_z, ssr_z], [op, sp]):
+                    if np.linalg.norm(z[-1] - form.ssa) < eps: color = 'purple'
+                    elif np.linalg.norm(z[-1] - form.ssb) < eps: color = 'g'
+                    else: print('{}, {}: neither SS'.format(x, y)); color = 'orange'
 
-            print(ssr_z[-1])
+                    if form == op:
+                        phase_orig[(x, y)] = (orig_z[-1], color)
+                    if form == sp:
+                        phase_ssr[tuple(sp_ic)] = (ssr_z[-1], color)
+        with open('data/{}'.format(filename), 'wb') as f:
+            pickle.dump((phase_orig, phase_ssr), f)
+            print('... SAVED data to {}'.format(filename))
+    else:
+        with open('data/{}'.format(filename), 'rb') as f:
+            phase_orig, phase_ssr = pickle.load(f)
+            print('... LOADED data from {}'.format(filename))
+
+    fig, ax = plt.subplots(figsize=(6,6))
+    op.plot_nullclines(ax, savefig=False)
+
+    for phase, name in zip([phase_orig, phase_ssr], ['orig', 'ssr']):
+        greens = []
+        purples = []
+        for key in phase:
+            if name is 'orig':
+                if phase[key][1] == 'g':
+                    greens.append(list(key))
+                elif phase[key][1] == 'purple':
+                    purples.append(list(key))
+                else:
+                    print('{} didn\'t go to either steady state'.format(key))
+            elif name is 'ssr':
+                if phase[key][1] == 'g':
+                    greens.append(op.convert_sp_to_op([list(key)])[0])
+                elif phase[key][1] == 'purple':
+                    purples.append(op.convert_sp_to_op([list(key)])[0])
+                else:
+                    print('{} didn\'t go to either steady state'.format(key))
+
+        greens = np.array(greens); purples = np.array(purples)
+        if name is 'orig':
+            markertype = 's'
+            green = lighten_color('green', .3)
+            purple = lighten_color('purple', .3)
+            zorder = 0
+            markersize = 5.3
+            alpha = 1
+        elif name is 'ssr':
+            markertype = 'D'
+            green = lighten_color('green', 1)
+            purple = lighten_color('purple', 1)
+            zorder = 1
+            markersize = 3
+            alpha = 1
+
+        ax.plot(greens[:,0], greens[:,1], markertype, color=green,
+                zorder=zorder, markersize=markersize, alpha=alpha)
+        ax.plot(purples[:,0], purples[:,1], markertype, color=purple, zorder=zorder,
+                markersize=markersize, alpha=alpha)
+
+        ## make custom legend handler (from Joel @
+        ## https://stackoverflow.com/questions/31478077/how-to-make-two-markers-share-the-same-label-in-the-legend-using-matplotlib )
+        class AnyObject(object):
+            pass
+
+        class data_handler(object):
+            def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+                box_greens = ['green', lighten_color('green', .3)]
+                box_purples = ['purple', lighten_color('purple', .3)]
+                scale = fontsize / 13
+                x0, y0 = handlebox.xdescent, handlebox.ydescent
+                width, height = handlebox.width, handlebox.height
+                interval = width/2
+                patch_sq = mpl.patches.Rectangle([x0, y0 + height/2 * (1 - scale) ], height * scale,
+                               height * scale, facecolor=box_greens[1],
+                               transform=handlebox.get_transform())
+                patch_circ = mpl.patches.Rectangle([x0 + interval, y0
+                    + height/2*(1-scale)], height * scale, height*scale,
+                    facecolor=box_purples[1],
+                    transform=handlebox.get_transform())
+
+                handlebox.add_artist(patch_sq)
+                handlebox.add_artist(patch_circ)
+                return True
+
+        class AnyObject2(object):
+            pass
+
+        class data_handler2(object):
+            def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+                box_greens = ['green', lighten_color('green', .3)]
+                box_purples = ['purple', lighten_color('purple', .3)]
+                scale = fontsize / 13
+                x0, y0 = handlebox.xdescent + 5, handlebox.ydescent + 5
+                width, height = handlebox.width, handlebox.height
+                interval = width/2
+                patch_sq = mpl.patches.RegularPolygon([x0, y0 + height/2 * (1 -
+                    scale)], numVertices=4, radius=5, orientation=0,
+                    facecolor=box_greens[0],
+                    transform=handlebox.get_transform())
+                patch_circ = mpl.patches.RegularPolygon([x0 + interval, y0 +
+                    height/2*(1-scale)], numVertices=4, radius=5,
+                    orientation=0, facecolor=box_purples[0],
+                    transform=handlebox.get_transform())
+                ## https://stackoverflow.com/questions/4285103/matplotlib-rotating-a-patch
+                #t2 = mpl.transforms.Affine2D().rotate_deg(-45) + handlebox.get_transform()
+                #patch_sq.set_transform(t2)
+
+
+                handlebox.add_artist(patch_sq)
+                handlebox.add_artist(patch_circ)
+                return True
+
+    leg = ax.legend([AnyObject(), AnyObject2(), mpl.lines.Line2D([0], [0],
+                     color='dimgrey')],
+                    ['true basin of attraction', 'SSR basin of attraction',
+                     'true nullclines'],
+                    handler_map={AnyObject: data_handler(), AnyObject2:
+                                 data_handler2()},
+                    fontsize=14, loc='upper right', handlelength=2,
+                    framealpha=1)
+
+    ax.set_xlim(0, max_x*1.1)
+    ax.set_ylim(0, max_y*1.1)
+
+    if savefig:
+        plt.savefig('figs/{}_{}.pdf'.format(filename, op.ext), bbox_inches='tight')
+        print('... saved to {}_{}.pdf'.format(filename, op.ext))
+
+
 def verify_all_fps_are_fps():
     """ Test that fixed points of the originalParams translate to also being
     fixed points of the quasipolynomialParams and gLVParams """
@@ -475,7 +628,6 @@ if __name__ == '__main__':
 
     op = originalParams()
     sp = ssrParams(op)
-
     compare_steady_states(op, sp)
 
     #print('----')

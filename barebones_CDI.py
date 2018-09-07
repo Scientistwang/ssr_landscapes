@@ -1,6 +1,6 @@
 #!/bin/python
 #
-# Version 0.2 
+# Version 1.0 
 # This file contains the barebones functions required to generate figures that
 # do not involve sporulation or mutation for the paper 'In silico analysis of
 # C. difficile infection: remediation techniques and biological adaptations' by
@@ -168,7 +168,31 @@ class Params:
                 (s.M[0][1]*s.M[1][0] - s.M[0][0]*s.M[1][1]))
         xb = - ((s.M[1][0]*s.mu[0] - s.M[0][0]*s.mu[1]) /
                 (s.M[0][1]*s.M[1][0] - s.M[0][0]*s.M[1][1]))
-        return [xa, xb]
+        return np.array([xa, xb])
+
+    def get_10_ss(s, t=0):
+        xa = -s.mu[0]/s.M[0][0]
+        xb = 0
+        return np.array([xa, xb])
+
+    def get_01_ss(s, t=0):
+        xa = 0
+        xb = -s.mu[0]/s.M[0][0]
+        return np.array([xa, xb])
+
+    def get_jacobian(s, x, t=0):
+        """ Return jacobian of N-dimensional gLV equation at steady state x """
+        N = len(x)
+        jac = np.zeros((N, N))
+        for i in range(N):
+            for j in range(N):
+                if i is j:
+                    val = s.mu[i] + np.dot(s.M, x)[i] + s.M[i,i]*x[i]
+                    jac[i, j] = val
+                else:
+                    val = x[i]*s.M[i,j]
+                    jac[i, j] = val
+        return jac
 
     def get_taylor_coeffs(s, order, dir_choice = 1):
         """ Return Taylor coefficients for unstable or stable manifolds of the
