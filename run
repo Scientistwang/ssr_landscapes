@@ -1,2 +1,2 @@
 #!/bin/bash
-./bistable_ssr.py
+./bifurcation_ssr.py
